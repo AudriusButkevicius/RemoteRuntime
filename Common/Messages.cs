@@ -41,29 +41,24 @@ namespace RemoteRuntime
     {
         public MessageType MessageType => MessageType.LoadAndRunRequest;
         public string Path { get; private set; }
-        public string TypeName { get; private set; }
 
         public LoadAndRunRequest()
         {
         }
 
-        public LoadAndRunRequest(string path, Type type)
-
+        public LoadAndRunRequest(string path)
         {
             Path = path;
-            TypeName = type.FullName;
         }
 
         public void ReadFrom(BinaryReader reader)
         {
             Path = reader.ReadString();
-            TypeName = reader.ReadString();
         }
 
         public void WriteTo(BinaryWriter writer)
         {
             writer.Write(Path);
-            writer.Write(TypeName);
         }
     }
 

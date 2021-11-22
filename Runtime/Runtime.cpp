@@ -1,133 +1,78 @@
-#include <filesystem>
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <iostream>
-#include <metahost.h>
-#include <process.h>
-#include <random>
-#include <sstream>
+#include <filesystem>
+#include <fstream>
+#include "Utils.hpp"
+
 #include <Windows.h>
 
-#pragma comment(lib, "mscoree.lib")
+#include <coreclr_delegates.h>
+#include <thread>
 
 
-std::filesystem::path create_temporary_directory(unsigned long long max_tries = 100)
+void command_thread(HMODULE module)
 {
-    const auto tmp_dir = std::filesystem::temp_directory_path();
-    unsigned long long i = 0;
-    std::random_device dev;
-    std::mt19937 prng(dev());
-    const std::uniform_int_distribution<uint64_t> rand(0);
-    std::filesystem::path path;
-    while (true)
+    WCHAR dll_path_cstr[MAX_PATH];
+    GetModuleFileName(module, dll_path_cstr, MAX_PATH);
+    const std::filesystem::path dll_path(dll_path_cstr);
+    std::cout << "Runtime path " << dll_path.string() << std::endl;
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    try
     {
-        std::stringstream ss;
-        ss << std::hex << rand(prng);
-        path = tmp_dir / ss.str();
-        // true if the directory was created.
-        if (create_directory(path))
+        if (!load_hostfxr())
         {
-            break;
-        }
-        if (i == max_tries)
-        {
-            throw std::runtime_error("could not find non-existing directory");
-        }
-        i++;
-    }
-    return path;
-}
-
-
-void command_thread(void* module)
-{
-    WCHAR buffer[MAX_PATH];
-    GetModuleFileName(static_cast<HMODULE>(module), buffer, MAX_PATH);
-
-    const std::filesystem::path module_path(buffer);
-    std::wcout << "Module path: " << module_path << std::endl;
-
-    if (!exists(module_path.parent_path() / "Host.dll"))
-    {
-        std::wcerr << "Could not find " << (module_path.parent_path() / "Host.dll") << std::endl;
-        return;
-    }
-
-    const auto tmp_dir = create_temporary_directory();
-    copy(module_path.parent_path(), tmp_dir, std::filesystem::copy_options::recursive);
-    std::wcout << "Copying assemblies from " << module_path.parent_path() << " to " << tmp_dir << std::endl;
-
-    ICLRMetaHost* meta_host = nullptr;
-    IEnumUnknown* runtime = nullptr;
-    ICLRRuntimeInfo* runtime_info = nullptr;
-    ICLRRuntimeHost* runtime_host = nullptr;
-    IUnknown* enum_runtime = nullptr;
-    DWORD bytes = 2048, result = 0;
-
-    if (CLRCreateInstance(CLSID_CLRMetaHost, IID_ICLRMetaHost, (LPVOID*)&meta_host) != S_OK)
-    {
-        std::cout << "[x] Error: CLRCreateInstance(..)" << std::endl;
-        return;
-    }
-
-    if (meta_host->EnumerateInstalledRuntimes(&runtime) != S_OK)
-    {
-        std::cout << "[x] Error: EnumerateInstalledRuntimes(..)" << std::endl;
-        return;
-    }
-
-    const LPWSTR framework_name = static_cast<LPWSTR>(LocalAlloc(LPTR, 2048));
-    if (framework_name == nullptr)
-    {
-        std::cout << "[x] Error: malloc could not allocate" << std::endl;
-        return;
-    }
-
-    // Enumerate through runtimes and show supported frameworks
-    while (runtime->Next(1, &enum_runtime, nullptr) == S_OK)
-    {
-        if (enum_runtime->QueryInterface<ICLRRuntimeInfo>(&runtime_info) == S_OK)
-        {
-            if (runtime_info != nullptr)
-            {
-                bytes = 2048;
-                runtime_info->GetVersionString(framework_name, &bytes);
-                std::wcout << L"[*] Supported Framework: " << std::wstring(framework_name) << std::endl;
-            }
+            std::cerr << "Failure: load_hostfxr()" << std::endl;
+            return;
         }
     }
-
-    if (runtime_info->GetInterface(CLSID_CLRRuntimeHost, IID_ICLRRuntimeHost, reinterpret_cast<LPVOID*>(&runtime_host)) != S_OK)
+    catch (std::exception exc)
     {
-        std::cout << "[x] ..GetInterface(CLSID_CLRRuntimeHost...) failed" << std::endl;
+        std::cout << "Exception " << exc.what() << std::endl;
+        throw;
+    } catch (...)
+    {
+        std::cout << "Exception " << GetLastError << std::endl;
+        throw;
+    }
+
+
+    const std::filesystem::path host_path = dll_path.parent_path();
+    const auto temp_dir = create_temporary_directory();
+    std::cout << "Copying host from " << host_path.string() << " to " << temp_dir.string() << std::endl;
+    copy(host_path, temp_dir);
+
+    std::filesystem::path config_path = temp_dir / L"Host.runtimeconfig.json";
+
+    if (!exists(config_path))
+    {
+        std::cerr << "Config path " << config_path.string() << " does not exist" << std::endl;
         return;
     }
 
-    std::wcout << L"[*] Using runtime: " << std::wstring(framework_name) << std::endl;
-
-    // Start runtime, and load our assembly
-    if (runtime_host->Start() != S_OK)
+    const auto load_assembly_and_get_function_pointer = get_dotnet_load_assembly(config_path);
+    if (load_assembly_and_get_function_pointer == nullptr)
     {
-        std::cout << "[x] ..Start() failed" << std::endl;
+        std::cerr << "Failure: get_dotnet_load_assembly()" << std::endl;
         return;
     }
 
-    const auto assembly = tmp_dir / "Host.dll";
-    if (!exists(assembly))
+    component_entry_point_fn entrypoint = nullptr;
+    int rc = load_assembly_and_get_function_pointer(
+        (temp_dir / L"Host.dll").c_str(),
+        L"RemoteRuntime.Host, Host",
+        L"Run",
+        nullptr,
+        nullptr,
+        reinterpret_cast<void**>(&entrypoint));
+    if (rc != 0 || entrypoint == nullptr)
     {
-        std::cout << "[x] ..Does not exist" << std::endl;
+        std::cerr << "Failure: load_assembly_and_get_function_pointer()" << std::endl;
         return;
     }
 
-    std::cout << "[*] ======= Calling .NET Code =======" << std::endl;
-    if (runtime_host->ExecuteInDefaultAppDomain(
-        assembly.c_str(),
-        L"RemoteRuntime.Host", L"Run", nullptr,
-        &result
-    ) != S_OK)
-    {
-        std::cout << "[x] Error: ExecuteInDefaultAppDomain(..) failed" << std::endl;
-        return;
-    }
-    std::cout << "[*] ======= Done =======" << std::endl;
+    entrypoint(nullptr, 0);
 }
 
 //---------------------------------------------------------------------------
@@ -137,18 +82,17 @@ BOOL WINAPI DllMain(HMODULE handle, DWORD reason, PVOID reversed)
     {
         if (AllocConsole())
         {
-            FILE* f_dummy;
-            freopen_s(&f_dummy, "CONOUT$", "w", stdout);
-            freopen_s(&f_dummy, "CONOUT$", "w", stderr);
-            freopen_s(&f_dummy, "CONIN$", "r", stdin);
+            FILE* fDummy;
+            freopen_s(&fDummy, "CONOUT$", "w", stdout);
+            freopen_s(&fDummy, "CONOUT$", "w", stderr);
+            freopen_s(&fDummy, "CONIN$", "r", stdin);
             std::cout.clear();
             std::clog.clear();
             std::cerr.clear();
             std::cin.clear();
         }
 
-        std::cout << "Injection success" << std::endl;
-        _beginthread(command_thread, 0, handle);
+        std::thread(command_thread, handle).detach();
         return TRUE;
     }
 

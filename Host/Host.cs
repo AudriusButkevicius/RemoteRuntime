@@ -1,17 +1,101 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.Loader;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Runtime.InteropServices;
 
 namespace RemoteRuntime
 {
-    public class Host
+    internal class HostAssemblyLoadContext : AssemblyLoadContext
     {
-        public static int Run(string hello)
+        private AssemblyDependencyResolver _resolver;
+
+        public HostAssemblyLoadContext(string pluginPath) : base(true)
+        {
+            _resolver = new AssemblyDependencyResolver(pluginPath);
+        }
+
+        protected override Assembly Load(AssemblyName name)
+        {
+            string assemblyPath = _resolver.ResolveAssemblyToPath(name);
+            if (assemblyPath != null)
+            {
+                Console.WriteLine($"Loading dependant assembly {Path.GetFileName(assemblyPath)}");
+                return LoadFromAssemblyPath(assemblyPath);
+            }
+
+            return null;
+        }
+    }
+
+    public static class Host
+    {
+        // It is important to mark this method as NoInlining, otherwise the JIT could decide
+        // to inline it into the Main method. That could then prevent successful unloading
+        // of the plugin because some of the MethodInfo / Type / Plugin.Base / HostAssemblyLoadContext
+        // instances may get lifetime extended beyond the point when the plugin is expected to be
+        // unloaded.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ExecuteAndUnload(
+            string assemblyPath, CancellationToken cancellationToken, out WeakReference alcWeakRef
+        )
+        {
+            var alc = new HostAssemblyLoadContext(assemblyPath);
+            alcWeakRef = new WeakReference(alc);
+            Assembly a = alc.LoadFromAssemblyPath(assemblyPath);
+            try
+            {
+                var types = new List<Type>();
+                foreach (Type type in a.GetTypes())
+                {
+                    if (!type.IsClass || type.IsAbstract)
+                    {
+                        continue;
+                    }
+
+                    MethodInfo run = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Instance);
+                    MethodInfo stop = type.GetMethod("Stop", BindingFlags.Public | BindingFlags.Instance);
+                    if (run != null && stop != null)
+                    {
+                        types.Add(type);
+                    }
+                }
+
+                if (types.Count != 1)
+                {
+                    throw new ApplicationException(
+                        $"Found none/multiple types implementing the interface: {types.Count}"
+                    );
+                }
+
+                dynamic plugin = Activator.CreateInstance(types[0]);
+
+                alc.Unloading += context => plugin.Stop();
+
+                var pluginTask = Task.Factory.StartNew(
+                    () =>
+                    {
+                        Console.WriteLine($"Starting plugin {plugin.GetType().Name}");
+                        plugin.Run();
+                    }, cancellationToken
+                );
+
+                pluginTask.Wait(cancellationToken);
+                Console.WriteLine($"Plugin {plugin.GetType().Name} finished");
+            }
+            finally
+            {
+                Console.WriteLine("Unloading...");
+                alc.Unload();
+            }
+        }
+
+        public static int Run(IntPtr arg, int argLength)
         {
             var pid = Process.GetCurrentProcess().Id;
             while (true)
@@ -22,7 +106,7 @@ namespace RemoteRuntime
                         $"remoteruntime-{pid}", PipeDirection.InOut, 1, PipeTransmissionMode.Message
                     );
 
-                    Console.WriteLine("Awaiting client connection...");
+                    Console.WriteLine("Awaiting client connection... :)");
                     pipe.WaitForConnection();
                     try
                     {
@@ -41,7 +125,7 @@ namespace RemoteRuntime
                             {
                                 try
                                 {
-                                    LoadModuleRequest(message, cancellationTokenSource.Token);
+                                    LoadModuleRequest(message.Path, cancellationTokenSource.Token);
                                     Console.WriteLine("Sending success");
                                     server.Send(new StatusWithError(true, ""));
                                 }
@@ -53,7 +137,7 @@ namespace RemoteRuntime
                                     Console.WriteLine($"Exception in plugin {e}");
                                     if (pipe.IsConnected)
                                     {
-                                        //server.Send(new StatusWithError(false, e.StackTrace));
+                                        server.Send(new StatusWithError(false, e.StackTrace));
                                     }
                                 }
                                 finally
@@ -92,92 +176,102 @@ namespace RemoteRuntime
             // ReSharper disable once FunctionNeverReturns
         }
 
-        private static ResolveEventHandler MakeAssemblyResolver(string stage, string directory)
+        private static void LoadModuleRequest(string assemblyPath, CancellationToken cancellationToken)
         {
-            return (sender, args) =>
+            string sourceDirectory = Path.GetDirectoryName(assemblyPath);
+            string temporaryDirectory = GetTemporaryDirectory();
+
+
+            Console.WriteLine($"Copying plugin from {sourceDirectory} to {temporaryDirectory}");
+            DirectoryCopy(sourceDirectory, temporaryDirectory, true);
+
+            WeakReference hostAlcWeakRef = null;
+            try
             {
-                string assemblyName = args.Name.Split('.')[0].Trim();
-                Console.WriteLine($"==== {stage} loading {assemblyName}");
-                string[] dirs = { directory, RuntimeEnvironment.GetRuntimeDirectory() };
-                string[] exts = { ".exe", ".dll" };
-                foreach (string dir in dirs)
+                string copyAssemblyPath = Path.Join(temporaryDirectory, Path.GetFileName(assemblyPath));
+                ExecuteAndUnload(copyAssemblyPath, cancellationToken, out hostAlcWeakRef);
+            }
+            finally
+            {
+                if (hostAlcWeakRef != null && hostAlcWeakRef.IsAlive)
                 {
-                    foreach (string ext in exts)
+                    // Poll and run GC until the AssemblyLoadContext is unloaded.
+                    // You don't need to do that unless you want to know when the context
+                    // got unloaded. You can just leave it to the regular GC.
+                    for (int i = 0; hostAlcWeakRef.IsAlive && (i < 10); i++)
                     {
-                        string filename = assemblyName + ext;
-                        string path = Path.Combine(dir, filename);
-                        if (File.Exists(path))
-                        {
-                            return Assembly.LoadFile(path);
-                        }
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
+                        Thread.Sleep(1000);
+                    }
+
+                    if (hostAlcWeakRef.IsAlive)
+                    {
+                        Console.WriteLine("Failed to collect plugin assemblies");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Cleaned up nicely");
                     }
                 }
 
-                return Assembly.Load(assemblyName);
-            };
-        }
-
-        private static void ExecuteAndUnload(
-            string assemblyPath, string typeName, CancellationToken cancellationToken
-        )
-        {
-            var domain = AppDomain.CreateDomain($"{assemblyPath.GetHashCode()}");
-
-            AppDomain.CurrentDomain.AssemblyResolve += MakeAssemblyResolver(
-                "Normal", Path.GetDirectoryName(assemblyPath)
-            );
-
-            AppDomain.CurrentDomain.ReflectionOnlyAssemblyResolve += MakeAssemblyResolver(
-                "Reflect", Path.GetDirectoryName(assemblyPath)
-            );
-
-            try
-            {
-                dynamic plugin = domain.CreateInstanceFromAndUnwrap(assemblyPath, typeName);
-                var pluginTask = Task.Factory.StartNew(
-                    () =>
+                if (hostAlcWeakRef == null || !hostAlcWeakRef.IsAlive)
+                {
+                    try
                     {
-                        Console.WriteLine($"Starting plugin {plugin.GetType().FullName}");
-                        plugin.Entrypoint();
-                    }, cancellationToken
-                );
-
-                pluginTask.Wait(cancellationToken);
-                Console.WriteLine($"Plugin {plugin.GetType().FullName} finished");
-            }
-            finally
-            {
-                Console.WriteLine("Unloading...");
-                AppDomain.Unload(domain);
-                Console.WriteLine("Unloaded");
+                        Directory.Delete(temporaryDirectory, true);
+                        Console.WriteLine($"Cleaned up temporary directory {temporaryDirectory}");
+                    }
+                    catch (Exception)
+                    {
+                        // Best effort
+                    }
+                }
             }
         }
 
-        private static void LoadModuleRequest(LoadAndRunRequest request, CancellationToken cancellationToken)
+        private static void DirectoryCopy(string sourceDirName, string destDirName, bool copySubDirs)
         {
-            string sourceDirectory = Path.GetDirectoryName(request.Path);
-            string temporaryDirectory = Utils.GetTemporaryDirectory();
+            // Get the subdirectories for the specified directory.
+            DirectoryInfo dir = new(sourceDirName);
 
-            Console.WriteLine($"Copying plugin from {sourceDirectory} to {temporaryDirectory}");
-            Utils.DirectoryCopy(sourceDirectory, temporaryDirectory, true);
+            if (!dir.Exists)
+            {
+                throw new DirectoryNotFoundException(
+                    "Source directory does not exist or could not be found: "
+                    + sourceDirName
+                );
+            }
 
-            try
+            DirectoryInfo[] dirs = dir.GetDirectories();
+
+            // If the destination directory doesn't exist, create it.       
+            Directory.CreateDirectory(destDirName);
+
+            // Get the files in the directory and copy them to the new location.
+            FileInfo[] files = dir.GetFiles();
+            foreach (FileInfo file in files)
             {
-                string copyAssemblyPath = Path.Combine(temporaryDirectory, Path.GetFileName(request.Path));
-                ExecuteAndUnload(copyAssemblyPath, request.TypeName, cancellationToken);
+                string tempPath = Path.Combine(destDirName, file.Name);
+                file.CopyTo(tempPath, false);
             }
-            finally
+
+            // If copying subdirectories, copy them and their contents to new location.
+            if (copySubDirs)
             {
-                try
+                foreach (DirectoryInfo subdir in dirs)
                 {
-                    Directory.Delete(temporaryDirectory, true);
-                    Console.WriteLine($"Cleaned up temporary directory {temporaryDirectory}");
-                }
-                catch (Exception)
-                {
-                    // Best effort
+                    string tempPath = Path.Combine(destDirName, subdir.Name);
+                    DirectoryCopy(subdir.FullName, tempPath, true);
                 }
             }
+        }
+
+        private static string GetTemporaryDirectory()
+        {
+            string tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            Directory.CreateDirectory(tempDirectory);
+            return tempDirectory;
         }
     }
 }

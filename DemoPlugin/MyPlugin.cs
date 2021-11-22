@@ -17,12 +17,24 @@ namespace DemoPlugin
         public static void Main(string[] args)
         {
             var processes = Process.GetProcessesByName("Notepad");
+            var started = false;
             if (processes.Length == 0)
             {
+                started = true;
                 processes = new[] { Process.Start("notepad.exe") };
             }
 
-            Inject(processes[0].Id);
+            try
+            {
+                Inject(processes[0].Id);
+            }
+            finally
+            {
+                if (started)
+                {
+                    processes[0].Kill();
+                }
+            }
         }
     }
 }
