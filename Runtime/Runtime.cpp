@@ -88,13 +88,14 @@ void command_thread(void* module)
         {
             if (runtime_info != nullptr)
             {
+                bytes = 2048;
                 runtime_info->GetVersionString(framework_name, &bytes);
                 std::wcout << L"[*] Supported Framework: " << std::wstring(framework_name) << std::endl;
             }
         }
     }
 
-    if (runtime_info->GetInterface(CLSID_CLRRuntimeHost, IID_ICLRRuntimeHost, (LPVOID*)&runtime_host) != S_OK)
+    if (runtime_info->GetInterface(CLSID_CLRRuntimeHost, IID_ICLRRuntimeHost, reinterpret_cast<LPVOID*>(&runtime_host)) != S_OK)
     {
         std::cout << "[x] ..GetInterface(CLSID_CLRRuntimeHost...) failed" << std::endl;
         return;

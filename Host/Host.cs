@@ -5,6 +5,7 @@ using System.IO.Pipes;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 
 namespace RemoteRuntime
 {
@@ -21,7 +22,7 @@ namespace RemoteRuntime
                         $"remoteruntime-{pid}", PipeDirection.InOut, 1, PipeTransmissionMode.Message
                     );
 
-                    Console.WriteLine("Awaiting client connection... :)");
+                    Console.WriteLine("Awaiting client connection...");
                     pipe.WaitForConnection();
                     try
                     {
@@ -91,45 +92,58 @@ namespace RemoteRuntime
             // ReSharper disable once FunctionNeverReturns
         }
 
+        private static ResolveEventHandler MakeAssemblyResolver(string stage, string directory)
+        {
+            return (sender, args) =>
+            {
+                string assemblyName = args.Name.Split('.')[0].Trim();
+                Console.WriteLine($"==== {stage} loading {assemblyName}");
+                string[] dirs = { directory, RuntimeEnvironment.GetRuntimeDirectory() };
+                string[] exts = { ".exe", ".dll" };
+                foreach (string dir in dirs)
+                {
+                    foreach (string ext in exts)
+                    {
+                        string filename = assemblyName + ext;
+                        string path = Path.Combine(dir, filename);
+                        if (File.Exists(path))
+                        {
+                            return Assembly.LoadFile(path);
+                        }
+                    }
+                }
+
+                return Assembly.Load(assemblyName);
+            };
+        }
+
         private static void ExecuteAndUnload(
             string assemblyPath, string typeName, CancellationToken cancellationToken
         )
         {
             var domain = AppDomain.CreateDomain($"{assemblyPath.GetHashCode()}");
 
-            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
-            {
-                string assemblyName = args.Name.Split('.')[0].Trim();
-                Console.WriteLine($"Loading {assemblyName}");
-                string dir = Path.GetDirectoryName(assemblyPath);
-                string[] exts = { ".exe", ".dll" };
-                foreach (string ext in exts)
-                {
-                    string filename = args.Name.Split(',')[0].Trim() + ext;
-                    string path = Path.Combine(dir, filename);
-                    if (File.Exists(path))
-                    {
-                        return Assembly.LoadFile(path);
-                    }
-                }
+            AppDomain.CurrentDomain.AssemblyResolve += MakeAssemblyResolver(
+                "Normal", Path.GetDirectoryName(assemblyPath)
+            );
 
-                return null;
-            };
+            AppDomain.CurrentDomain.ReflectionOnlyAssemblyResolve += MakeAssemblyResolver(
+                "Reflect", Path.GetDirectoryName(assemblyPath)
+            );
 
             try
             {
                 dynamic plugin = domain.CreateInstanceFromAndUnwrap(assemblyPath, typeName);
-                string version = plugin.GetVersion();
                 var pluginTask = Task.Factory.StartNew(
                     () =>
                     {
-                        Console.WriteLine($"Starting plugin {plugin.GetType().Name} {version}");
+                        Console.WriteLine($"Starting plugin {plugin.GetType().FullName}");
                         plugin.Entrypoint();
                     }, cancellationToken
                 );
 
                 pluginTask.Wait(cancellationToken);
-                Console.WriteLine($"Plugin {plugin.GetType().Name} {version} finished");
+                Console.WriteLine($"Plugin {plugin.GetType().FullName} finished");
             }
             finally
             {

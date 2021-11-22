@@ -6,13 +6,11 @@ namespace DemoPlugin
 {
     public class MyPlugin : PluginBase
     {
-        public override string GetVersion() => "1.0.0";
-
         public override void Run()
         {
             while (!Terminate.WaitOne(1000))
             {
-                Console.WriteLine("Plugin running...");
+                Console.WriteLine($"Plugin running...");
             }
         }
 
