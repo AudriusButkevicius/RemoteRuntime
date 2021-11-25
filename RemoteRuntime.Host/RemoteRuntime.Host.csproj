@@ -4,14 +4,13 @@
     <TargetFramework>net5.0-windows</TargetFramework>
     <LangVersion>9</LangVersion>
     <Configurations>Release</Configurations>
-    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
     <RootNamespace>RemoteRuntime</RootNamespace>
-    <AssemblyName>Host</AssemblyName>
     <EnableDynamicLoading>true</EnableDynamicLoading>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Common\Common.csproj" />
+    <ProjectReference Include="..\RemoteRuntime.Common\RemoteRuntime.Common.csproj" />
   </ItemGroup>
 
 </Project>

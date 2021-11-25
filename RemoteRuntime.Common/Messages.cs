@@ -7,7 +7,8 @@ namespace RemoteRuntime
     public enum MessageType
     {
         LoadAndRunRequest = 1,
-        StatusWithError = 2,
+        LogLine = 2,
+        StatusWithError = 3,
     }
 
     public interface IMessage
@@ -59,6 +60,31 @@ namespace RemoteRuntime
         public void WriteTo(BinaryWriter writer)
         {
             writer.Write(Path);
+        }
+    }
+
+    public class LogLine : IMessage
+    {
+        public MessageType MessageType => MessageType.LogLine;
+        public string Line { get; private set; }
+
+        public LogLine()
+        {
+        }
+
+        public LogLine(string line)
+        {
+            Line = line;
+        }
+
+        public void ReadFrom(BinaryReader reader)
+        {
+            Line = reader.ReadString();
+        }
+
+        public void WriteTo(BinaryWriter writer)
+        {
+            writer.Write(Line);
         }
     }
 

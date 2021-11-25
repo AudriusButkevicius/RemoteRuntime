@@ -2,37 +2,37 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.28516.95
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Base", "Base\Base.csproj", "{C9BCDE8B-51BA-40A6-B7A1-186F6C6B6CCE}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Common", "Common\Common.csproj", "{B4CD7752-9548-47CE-B236-C8B6CB62494A}"
-EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Runtime", "Runtime\Runtime.vcxproj", "{2FC67291-C1CE-4541-AEC8-440779E64E65}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Host", "Host\Host.csproj", "{89B8F266-2D54-4137-8668-F715EA7C28B0}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DemoPlugin", "DemoPlugin\DemoPlugin.csproj", "{103C2CD9-2D0F-4B98-88F0-989DB1BF5245}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{D8D453EF-A2A9-480D-8DF5-1EFDC130B139}"
-        ProjectSection(SolutionItems) = preProject
-                LICENSE = LICENSE
-                README.md = README.md
-        EndProjectSection
+								ProjectSection(SolutionItems) = preProject
+																LICENSE = LICENSE
+																README.md = README.md
+								EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RemoteRuntime.Common", "RemoteRuntime.Common\RemoteRuntime.Common.csproj", "{FB6DEEDC-4BEA-4BCC-BBD1-8B911F431CB0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RemoteRuntime.Host", "RemoteRuntime.Host\RemoteRuntime.Host.csproj", "{5D7C4666-E3B0-42C3-AA58-C2E5A30A498E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RemoteRuntime.PluginBase", "RemoteRuntime.PluginBase\RemoteRuntime.PluginBase.csproj", "{AC7D7F55-B934-4FEB-8B71-C26028DF66E5}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RemoteRuntime.Runtime", "RemoteRuntime.Runtime\RemoteRuntime.Runtime.vcxproj", "{2FC67291-C1CE-4541-AEC8-440779E64E65}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{C9BCDE8B-51BA-40A6-B7A1-186F6C6B6CCE}.Release|x64.ActiveCfg = Release|x64
-		{C9BCDE8B-51BA-40A6-B7A1-186F6C6B6CCE}.Release|x64.Build.0 = Release|x64
-		{B4CD7752-9548-47CE-B236-C8B6CB62494A}.Release|x64.ActiveCfg = Release|Any CPU
-		{B4CD7752-9548-47CE-B236-C8B6CB62494A}.Release|x64.Build.0 = Release|Any CPU
-		{2FC67291-C1CE-4541-AEC8-440779E64E65}.Release|x64.ActiveCfg = Release|x64
-		{2FC67291-C1CE-4541-AEC8-440779E64E65}.Release|x64.Build.0 = Release|x64
-		{89B8F266-2D54-4137-8668-F715EA7C28B0}.Release|x64.ActiveCfg = Release|Any CPU
-		{89B8F266-2D54-4137-8668-F715EA7C28B0}.Release|x64.Build.0 = Release|Any CPU
 		{103C2CD9-2D0F-4B98-88F0-989DB1BF5245}.Release|x64.ActiveCfg = Release|x64
 		{103C2CD9-2D0F-4B98-88F0-989DB1BF5245}.Release|x64.Build.0 = Release|x64
+		{FB6DEEDC-4BEA-4BCC-BBD1-8B911F431CB0}.Release|x64.ActiveCfg = Release|x64
+		{FB6DEEDC-4BEA-4BCC-BBD1-8B911F431CB0}.Release|x64.Build.0 = Release|x64
+		{5D7C4666-E3B0-42C3-AA58-C2E5A30A498E}.Release|x64.ActiveCfg = Release|x64
+		{5D7C4666-E3B0-42C3-AA58-C2E5A30A498E}.Release|x64.Build.0 = Release|x64
+		{AC7D7F55-B934-4FEB-8B71-C26028DF66E5}.Release|x64.ActiveCfg = Release|x64
+		{AC7D7F55-B934-4FEB-8B71-C26028DF66E5}.Release|x64.Build.0 = Release|x64
+		{2FC67291-C1CE-4541-AEC8-440779E64E65}.Release|x64.ActiveCfg = Release|x64
+		{2FC67291-C1CE-4541-AEC8-440779E64E65}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

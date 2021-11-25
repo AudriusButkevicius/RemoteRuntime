@@ -4,11 +4,10 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace RemoteRuntime.Plugin
 {
-    public abstract class PluginBase : MarshalByRefObject
+    public abstract class PluginBase
     {
         protected readonly ManualResetEvent Terminate = new(false);
 
@@ -21,7 +20,7 @@ namespace RemoteRuntime.Plugin
         }
 
 
-        protected static void Inject(int pid, string assemblyPath = null, string pathToRuntimeDll = null)
+        protected static void Inject(int pid, string pathToRuntimeDll = null, string assemblyPath = null)
         {
             string path = assemblyPath ?? Assembly.GetEntryAssembly()?.Location;
             if (path == null || !File.Exists(path))
@@ -32,7 +31,7 @@ namespace RemoteRuntime.Plugin
             if (pathToRuntimeDll == null)
             {
                 string expectedPath = Path.GetFullPath(
-                    Path.Combine(Path.GetDirectoryName(path), @"..\..\..\..\..\Runtime\bin\x64\Release\Runtime.dll")
+                    Path.Combine(Path.GetDirectoryName(path), @"..\..\..\..\..\RemoteRuntime.Runtime\bin\x64\Release\Runtime.dll")
                 );
                 if (!File.Exists(expectedPath))
                 {
@@ -54,10 +53,27 @@ namespace RemoteRuntime.Plugin
             client.Send(new LoadAndRunRequest(path));
 
             Console.WriteLine("Waiting for termination...");
-            var outcome = client.Receive() as StatusWithError;
-            if (!outcome.Success)
+            while (true)
             {
-                throw new ApplicationException(outcome.Error);
+                var msg = client.Receive();
+                if (msg is LogLine log)
+                {
+                    Console.Write(log.Line);
+                    Console.Out.Flush();
+                }
+                else if (msg is StatusWithError status)
+                {
+                    if (!status.Success)
+                    {
+                        throw new ApplicationException(status.Error);
+                    }
+
+                    return;
+                }
+                else
+                {
+                    throw new ApplicationException("Unhandled message type");
+                }
             }
         }
     }

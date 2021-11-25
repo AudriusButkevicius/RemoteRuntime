@@ -43,7 +43,7 @@ void command_thread(HMODULE module)
     std::cout << "Copying host from " << host_path.string() << " to " << temp_dir.string() << std::endl;
     copy(host_path, temp_dir);
 
-    std::filesystem::path config_path = temp_dir / L"Host.runtimeconfig.json";
+    std::filesystem::path config_path = temp_dir / L"RemoteRuntime.Host.runtimeconfig.json";
 
     if (!exists(config_path))
     {
@@ -60,8 +60,8 @@ void command_thread(HMODULE module)
 
     component_entry_point_fn entrypoint = nullptr;
     int rc = load_assembly_and_get_function_pointer(
-        (temp_dir / L"Host.dll").c_str(),
-        L"RemoteRuntime.Host, Host",
+        (temp_dir / L"RemoteRuntime.Host.dll").c_str(),
+        L"RemoteRuntime.Host, RemoteRuntime.Host",
         L"Run",
         nullptr,
         nullptr,

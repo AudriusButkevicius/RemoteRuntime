@@ -30,6 +30,7 @@ namespace RemoteRuntime
 
             client.RegisterMessage<LoadAndRunRequest>();
             client.RegisterMessage<StatusWithError>();
+            client.RegisterMessage<LogLine>();
 
             return client;
         }
@@ -40,6 +41,7 @@ namespace RemoteRuntime
 
             client.RegisterMessage<LoadAndRunRequest>();
             client.RegisterMessage<StatusWithError>();
+            client.RegisterMessage<LogLine>();
 
             return client;
         }

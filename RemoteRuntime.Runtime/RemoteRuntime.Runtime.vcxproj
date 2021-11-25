@@ -41,6 +41,9 @@
         <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     </ImportGroup>
     <PropertyGroup Label="UserMacros" />
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+      <TargetName>runtime</TargetName>
+    </PropertyGroup>
     <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
         <ClCompile>
             <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -71,7 +74,7 @@
 
     <Target Name="IncludeHostImplementation" BeforeTargets="AfterBuild">
         <ItemGroup>
-            <HostFiles Include="$(SolutionDir)\Host\bin\$(Configuration)\net5.0-windows\*.dll;$(SolutionDir)\Host\bin\$(Configuration)\net5.0-windows\*.runtimeconfig.json" />
+            <HostFiles Include="$(SolutionDir)\RemoteRuntime.Host\bin\$(Platform)\$(Configuration)\net5.0-windows\*.dll;$(SolutionDir)\RemoteRuntime.Host\bin\$(Platform)\\$(Configuration)\net5.0-windows\*.runtimeconfig.json" />
         </ItemGroup>
         <Copy SourceFiles="@(HostFiles)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true" />
     </Target>

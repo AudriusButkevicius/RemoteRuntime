@@ -14,10 +14,12 @@ namespace RemoteRuntime
     internal class HostAssemblyLoadContext : AssemblyLoadContext
     {
         private AssemblyDependencyResolver _resolver;
+        private readonly TextWriter _log;
 
-        public HostAssemblyLoadContext(string pluginPath) : base(true)
+        public HostAssemblyLoadContext(string pluginPath, TextWriter log) : base(true)
         {
             _resolver = new AssemblyDependencyResolver(pluginPath);
+            _log = log;
         }
 
         protected override Assembly Load(AssemblyName name)
@@ -25,7 +27,7 @@ namespace RemoteRuntime
             string assemblyPath = _resolver.ResolveAssemblyToPath(name);
             if (assemblyPath != null)
             {
-                Console.WriteLine($"Loading dependant assembly {Path.GetFileName(assemblyPath)}");
+                _log.WriteLine($"Loading dependant assembly {Path.GetFileName(assemblyPath)}");
                 return LoadFromAssemblyPath(assemblyPath);
             }
 
@@ -35,6 +37,8 @@ namespace RemoteRuntime
 
     public static class Host
     {
+        private static TextWriter Log = Console.Out;
+
         // It is important to mark this method as NoInlining, otherwise the JIT could decide
         // to inline it into the Main method. That could then prevent successful unloading
         // of the plugin because some of the MethodInfo / Type / Plugin.Base / HostAssemblyLoadContext
@@ -45,21 +49,23 @@ namespace RemoteRuntime
             string assemblyPath, CancellationToken cancellationToken, out WeakReference alcWeakRef
         )
         {
-            var alc = new HostAssemblyLoadContext(assemblyPath);
+            var alc = new HostAssemblyLoadContext(assemblyPath, Log);
             alcWeakRef = new WeakReference(alc);
             Assembly a = alc.LoadFromAssemblyPath(assemblyPath);
             try
             {
                 var types = new List<Type>();
+                MethodInfo run = null;
+                MethodInfo stop = null;
                 foreach (Type type in a.GetTypes())
                 {
-                    if (!type.IsClass || type.IsAbstract)
+                    if (!type.IsClass || type.IsAbstract || type.IsNotPublic || !type.IsPublic)
                     {
                         continue;
                     }
 
-                    MethodInfo run = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Instance);
-                    MethodInfo stop = type.GetMethod("Stop", BindingFlags.Public | BindingFlags.Instance);
+                    run = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Instance);
+                    stop = type.GetMethod("Stop", BindingFlags.Public | BindingFlags.Instance);
                     if (run != null && stop != null)
                     {
                         types.Add(type);
@@ -73,31 +79,50 @@ namespace RemoteRuntime
                     );
                 }
 
-                dynamic plugin = Activator.CreateInstance(types[0]);
+                object plugin = Activator.CreateInstance(types[0], true);
+                if (plugin == null)
+                {
+                    throw new ApplicationException(
+                        "Failed create class instance. Is it public? Is the assembly dynamically loadable?"
+                    );
+                }
 
-                alc.Unloading += context => plugin.Stop();
+                alc.Unloading += _ => stop.Invoke(plugin, null);
 
                 var pluginTask = Task.Factory.StartNew(
                     () =>
                     {
-                        Console.WriteLine($"Starting plugin {plugin.GetType().Name}");
-                        plugin.Run();
+                        Log.WriteLine($"Starting plugin {plugin.GetType().Name}");
+                        run.Invoke(plugin, null);
                     }, cancellationToken
                 );
 
                 pluginTask.Wait(cancellationToken);
-                Console.WriteLine($"Plugin {plugin.GetType().Name} finished");
+                Log.WriteLine($"Plugin {plugin.GetType().Name} finished");
             }
             finally
             {
-                Console.WriteLine("Unloading...");
-                alc.Unload();
+                Log.WriteLine("Unloading...");
+                try
+                {
+                    alc.Unload();
+                }
+                catch (Exception)
+                {
+                    // Can fail if we tried to load something dodgy.
+                    Log.WriteLine("Unload request threw");
+                }
             }
         }
 
         public static int Run(IntPtr arg, int argLength)
         {
             var pid = Process.GetCurrentProcess().Id;
+            var logMessageQueue = new Queue<string>();
+            var writer = new RedirectingTextWriter(logMessageQueue);
+            Log.WriteLine($"CURRENT OUT {Console.Out}");
+            Console.SetOut(writer);
+            Log.WriteLine($"CURRENT OUT {Console.Out}");
             while (true)
             {
                 try
@@ -106,7 +131,8 @@ namespace RemoteRuntime
                         $"remoteruntime-{pid}", PipeDirection.InOut, 1, PipeTransmissionMode.Message
                     );
 
-                    Console.WriteLine("Awaiting client connection... :)");
+                    Log.WriteLine("Awaiting client connection...");
+                    logMessageQueue.Clear();
                     pipe.WaitForConnection();
                     try
                     {
@@ -126,7 +152,7 @@ namespace RemoteRuntime
                                 try
                                 {
                                     LoadModuleRequest(message.Path, cancellationTokenSource.Token);
-                                    Console.WriteLine("Sending success");
+                                    Log.WriteLine("Sending success");
                                     server.Send(new StatusWithError(true, ""));
                                 }
                                 catch (OperationCanceledException)
@@ -134,7 +160,8 @@ namespace RemoteRuntime
                                 }
                                 catch (Exception e)
                                 {
-                                    Console.WriteLine($"Exception in plugin {e}");
+                                    Log.WriteLine($"Exception in plugin");
+                                    Log.WriteLine(e.ToString());
                                     if (pipe.IsConnected)
                                     {
                                         server.Send(new StatusWithError(false, e.StackTrace));
@@ -150,13 +177,18 @@ namespace RemoteRuntime
 
                         while (server.Poll() >= 0)
                         {
+                            if (logMessageQueue.TryDequeue(out var line))
+                            {
+                                server.Send(new LogLine(line));
+                            }
+
                             Thread.Yield();
                         }
 
-                        Console.WriteLine("Client disconnected, cancelling task...");
+                        Log.WriteLine("Client disconnected, cancelling task...");
                         cancellationTokenSource.Cancel();
                         task.Wait();
-                        Console.WriteLine("Task finished");
+                        Log.WriteLine("Task finished");
                     }
                     finally
                     {
@@ -181,8 +213,7 @@ namespace RemoteRuntime
             string sourceDirectory = Path.GetDirectoryName(assemblyPath);
             string temporaryDirectory = GetTemporaryDirectory();
 
-
-            Console.WriteLine($"Copying plugin from {sourceDirectory} to {temporaryDirectory}");
+            Log.WriteLine($"Copying plugin from {sourceDirectory} to {temporaryDirectory}");
             DirectoryCopy(sourceDirectory, temporaryDirectory, true);
 
             WeakReference hostAlcWeakRef = null;
@@ -198,34 +229,30 @@ namespace RemoteRuntime
                     // Poll and run GC until the AssemblyLoadContext is unloaded.
                     // You don't need to do that unless you want to know when the context
                     // got unloaded. You can just leave it to the regular GC.
-                    for (int i = 0; hostAlcWeakRef.IsAlive && (i < 10); i++)
+                    for (int i = 0; hostAlcWeakRef.IsAlive && i < 10; i++)
                     {
                         GC.Collect();
                         GC.WaitForPendingFinalizers();
-                        Thread.Sleep(1000);
                     }
 
                     if (hostAlcWeakRef.IsAlive)
                     {
-                        Console.WriteLine("Failed to collect plugin assemblies");
+                        Log.WriteLine("Failed to collect plugin assemblies");
                     }
                     else
                     {
-                        Console.WriteLine("Cleaned up nicely");
+                        Log.WriteLine("Cleaned up nicely");
                     }
                 }
 
-                if (hostAlcWeakRef == null || !hostAlcWeakRef.IsAlive)
+                try
                 {
-                    try
-                    {
-                        Directory.Delete(temporaryDirectory, true);
-                        Console.WriteLine($"Cleaned up temporary directory {temporaryDirectory}");
-                    }
-                    catch (Exception)
-                    {
-                        // Best effort
-                    }
+                    Directory.Delete(temporaryDirectory, true);
+                    Log.WriteLine($"Cleaned up temporary directory {temporaryDirectory}");
+                }
+                catch (Exception)
+                {
+                    // Best effort
                 }
             }
         }
