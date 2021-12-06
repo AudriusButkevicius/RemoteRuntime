@@ -67,24 +67,28 @@ namespace RemoteRuntime
     {
         public MessageType MessageType => MessageType.LogLine;
         public string Line { get; private set; }
+        public bool IsError { get; private set; } 
 
         public LogLine()
         {
         }
 
-        public LogLine(string line)
+        public LogLine(string line, bool isError)
         {
             Line = line;
+            IsError = isError;
         }
 
         public void ReadFrom(BinaryReader reader)
         {
             Line = reader.ReadString();
+            IsError = reader.ReadBoolean();
         }
 
         public void WriteTo(BinaryWriter writer)
         {
             writer.Write(Line);
+            writer.Write(IsError);
         }
     }
 

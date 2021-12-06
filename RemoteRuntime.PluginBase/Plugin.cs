@@ -31,7 +31,9 @@ namespace RemoteRuntime.Plugin
             if (pathToRuntimeDll == null)
             {
                 string expectedPath = Path.GetFullPath(
-                    Path.Combine(Path.GetDirectoryName(path), @"..\..\..\..\..\RemoteRuntime.Runtime\bin\x64\Release\Runtime.dll")
+                    Path.Combine(
+                        Path.GetDirectoryName(path), @"..\..\..\..\..\RemoteRuntime.Runtime\bin\x64\Release\Runtime.dll"
+                    )
                 );
                 if (!File.Exists(expectedPath))
                 {
@@ -52,14 +54,14 @@ namespace RemoteRuntime.Plugin
             Console.WriteLine($"Connected to {pid}... asking to run {path}");
             client.Send(new LoadAndRunRequest(path));
 
-            Console.WriteLine("Waiting for termination...");
             while (true)
             {
                 var msg = client.Receive();
                 if (msg is LogLine log)
                 {
-                    Console.Write(log.Line);
-                    Console.Out.Flush();
+                    var writer = log.IsError ? Console.Error : Console.Out;
+                    writer.Write(log.Line);
+                    writer.Flush();
                 }
                 else if (msg is StatusWithError status)
                 {
@@ -68,7 +70,7 @@ namespace RemoteRuntime.Plugin
                         throw new ApplicationException(status.Error);
                     }
 
-                    return;
+                    break;
                 }
                 else
                 {

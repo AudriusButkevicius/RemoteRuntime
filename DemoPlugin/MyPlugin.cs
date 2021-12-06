@@ -8,9 +8,15 @@ namespace DemoPlugin
     {
         public override void Run()
         {
+            int i = 0;
             while (!Terminate.WaitOne(1000))
             {
-                Console.WriteLine($"Plugin running...");
+                Console.WriteLine($"C# plugin running...");
+                i++;
+                if (i > 5)
+                {
+                    throw new ApplicationException("bad stufff");
+                }
             }
         }
 

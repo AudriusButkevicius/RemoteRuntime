@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -117,12 +118,34 @@ namespace RemoteRuntime
 
         public static int Run(IntPtr arg, int argLength)
         {
+            Log = Console.Out;
             var pid = Process.GetCurrentProcess().Id;
-            var logMessageQueue = new Queue<string>();
-            var writer = new RedirectingTextWriter(logMessageQueue);
-            Log.WriteLine($"CURRENT OUT {Console.Out}");
-            Console.SetOut(writer);
-            Log.WriteLine($"CURRENT OUT {Console.Out}");
+            var stdoutMessages = new ConcurrentQueue<string>();
+            var stderrMessages = new ConcurrentQueue<string>();
+            var stdout = new RedirectingTextWriter(stdoutMessages);
+            var stderr = new RedirectingTextWriter(stderrMessages);
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+
+            void ForwardLogs(MessageClient server)
+            {
+                while (stdoutMessages.TryDequeue(out var line))
+                {
+                    if (line != null)
+                    {
+                        server.Send(new LogLine(line, false));
+                    }
+                }
+
+                while (stderrMessages.TryDequeue(out var line))
+                {
+                    if (line != null)
+                    {
+                        server.Send(new LogLine(line, true));
+                    }
+                }
+            }
+
             while (true)
             {
                 try
@@ -132,8 +155,9 @@ namespace RemoteRuntime
                     );
 
                     Log.WriteLine("Awaiting client connection...");
-                    logMessageQueue.Clear();
                     pipe.WaitForConnection();
+                    stdoutMessages.Clear();
+                    stderrMessages.Clear();
                     try
                     {
                         var server = MessageClient.CreateServer(pipe);
@@ -145,50 +169,60 @@ namespace RemoteRuntime
                         }
 
                         var cancellationTokenSource = new CancellationTokenSource();
-
                         var task = Task.Factory.StartNew(
                             () =>
                             {
                                 try
                                 {
                                     LoadModuleRequest(message.Path, cancellationTokenSource.Token);
-                                    Log.WriteLine("Sending success");
-                                    server.Send(new StatusWithError(true, ""));
                                 }
                                 catch (OperationCanceledException)
                                 {
+                                    Log.WriteLine("Plugin cancelled...");
                                 }
                                 catch (Exception e)
                                 {
                                     Log.WriteLine($"Exception in plugin");
                                     Log.WriteLine(e.ToString());
-                                    if (pipe.IsConnected)
-                                    {
-                                        server.Send(new StatusWithError(false, e.StackTrace));
-                                    }
-                                }
-                                finally
-                                {
-                                    // To get out of the poll loop.
-                                    pipe.Disconnect();
+                                    throw;
                                 }
                             }
                         );
 
-                        while (server.Poll() >= 0)
+                        while (server.Poll() >= 0 && !task.IsCompleted)
                         {
-                            if (logMessageQueue.TryDequeue(out var line))
-                            {
-                                server.Send(new LogLine(line));
-                            }
-
+                            ForwardLogs(server);
                             Thread.Yield();
                         }
 
-                        Log.WriteLine("Client disconnected, cancelling task...");
-                        cancellationTokenSource.Cancel();
-                        task.Wait();
-                        Log.WriteLine("Task finished");
+                        ForwardLogs(server);
+
+                        if (task.IsCompleted)
+                        {
+                            if (task.IsCompletedSuccessfully)
+                            {
+                                Log.WriteLine("Task completed successfully");
+                                server.Send(new StatusWithError(true, ""));
+                            }
+                            else
+                            {
+                                Log.WriteLine("Task failed");
+                                server.Send(
+                                    new StatusWithError(false, task.Exception?.ToString() ?? "No exception???")
+                                );
+                            }
+                        }
+                        else
+                        {
+                            Log.WriteLine("Client disconnected, cancelling task...");
+                            cancellationTokenSource.Cancel();
+                            task.Wait();
+                            Log.WriteLine("Task finished");
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Log.WriteLine($"Main loop failed:\n{e}");
                     }
                     finally
                     {
