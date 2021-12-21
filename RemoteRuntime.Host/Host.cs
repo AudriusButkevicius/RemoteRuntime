@@ -53,11 +53,12 @@ namespace RemoteRuntime
             var alc = new HostAssemblyLoadContext(assemblyPath, Log);
             alcWeakRef = new WeakReference(alc);
             Assembly a = alc.LoadFromAssemblyPath(assemblyPath);
+            MethodInfo run = null;
+            MethodInfo stop = null;
+            object plugin = null;
             try
             {
                 var types = new List<Type>();
-                MethodInfo run = null;
-                MethodInfo stop = null;
                 foreach (Type type in a.GetTypes())
                 {
                     if (!type.IsClass || type.IsAbstract || type.IsNotPublic || !type.IsPublic)
@@ -80,7 +81,7 @@ namespace RemoteRuntime
                     );
                 }
 
-                object plugin = Activator.CreateInstance(types[0], true);
+                plugin = Activator.CreateInstance(types[0], true);
                 if (plugin == null)
                 {
                     throw new ApplicationException(
@@ -88,7 +89,11 @@ namespace RemoteRuntime
                     );
                 }
 
-                alc.Unloading += _ => stop.Invoke(plugin, null);
+                alc.Unloading += _ =>
+                {
+                    Log.WriteLine("Calling stop from unloading...");
+                    stop.Invoke(plugin, null);
+                };
 
                 var pluginTask = Task.Factory.StartNew(
                     () =>
@@ -107,6 +112,11 @@ namespace RemoteRuntime
                 try
                 {
                     alc.Unload();
+                    if (plugin != null)
+                    {
+                        Log.WriteLine("Calling stop from finally...");
+                        stop?.Invoke(plugin, null);   
+                    }
                 }
                 catch (Exception)
                 {
@@ -122,8 +132,8 @@ namespace RemoteRuntime
             var pid = Process.GetCurrentProcess().Id;
             var stdoutMessages = new ConcurrentQueue<string>();
             var stderrMessages = new ConcurrentQueue<string>();
-            var stdout = new RedirectingTextWriter(stdoutMessages);
-            var stderr = new RedirectingTextWriter(stderrMessages);
+            var stdout = new RedirectingTextWriter(stdoutMessages, Console.Out);
+            var stderr = new RedirectingTextWriter(stderrMessages, Console.Error);
             Console.SetOut(stdout);
             Console.SetError(stderr);
 

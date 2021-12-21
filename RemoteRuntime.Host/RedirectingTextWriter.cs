@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
@@ -7,13 +6,15 @@ namespace RemoteRuntime
 {
     public sealed class RedirectingTextWriter : TextWriter
     {
-        private ConcurrentQueue<string> _queue;
-        private StringBuilder _builder;
+        private readonly ConcurrentQueue<string> _queue;
+        private readonly StringBuilder _builder;
+        private readonly TextWriter _tee;
 
-        public RedirectingTextWriter(ConcurrentQueue<string> queue)
+        public RedirectingTextWriter(ConcurrentQueue<string> queue, TextWriter tee)
         {
             _queue = queue;
             _builder = new StringBuilder();
+            _tee = tee;
         }
 
         public override Encoding Encoding => Encoding.UTF8;
@@ -29,8 +30,11 @@ namespace RemoteRuntime
 
         public override void Flush()
         {
-            _queue.Enqueue(_builder.ToString());
+            var line = _builder.ToString();
             _builder.Clear();
+            _tee?.Write(line);
+            _tee?.Flush();
+            _queue.Enqueue(line);
         }
     }
 }
