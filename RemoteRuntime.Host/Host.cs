@@ -66,10 +66,12 @@ namespace RemoteRuntime
                         continue;
                     }
 
-                    run = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Instance);
-                    stop = type.GetMethod("Stop", BindingFlags.Public | BindingFlags.Instance);
-                    if (run != null && stop != null)
+                    var thisRun = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Instance);
+                    var thisStop = type.GetMethod("Stop", BindingFlags.Public | BindingFlags.Instance);
+                    if (thisRun != null && thisStop != null)
                     {
+                        run = thisRun;
+                        stop = thisStop;
                         types.Add(type);
                     }
                 }
