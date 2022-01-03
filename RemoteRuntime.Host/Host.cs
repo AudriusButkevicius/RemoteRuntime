@@ -47,7 +47,7 @@ namespace RemoteRuntime
         // unloaded.
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ExecuteAndUnload(
-            string assemblyPath, CancellationToken cancellationToken, out WeakReference alcWeakRef
+            string assemblyPath, Dictionary<string, string> arguments, CancellationToken cancellationToken, out WeakReference alcWeakRef
         )
         {
             var alc = new HostAssemblyLoadContext(assemblyPath, Log);
@@ -98,8 +98,8 @@ namespace RemoteRuntime
                 var pluginTask = Task.Factory.StartNew(
                     () =>
                     {
-                        Log.WriteLine($"Starting plugin {plugin.GetType().Name}");
-                        run.Invoke(plugin, null);
+                        Log.WriteLine($"Starting plugin {plugin.GetType().Name} with arguments {string.Join(", ", arguments)}");
+                        run.Invoke(plugin, new object[] { arguments });
                     }, cancellationToken
                 );
 
@@ -184,7 +184,7 @@ namespace RemoteRuntime
                             {
                                 try
                                 {
-                                    LoadModuleRequest(message.Path, cancellationTokenSource.Token);
+                                    LoadModuleRequest(message.Path, message.Arguments, cancellationTokenSource.Token);
                                 }
                                 catch (OperationCanceledException)
                                 {
@@ -252,7 +252,7 @@ namespace RemoteRuntime
             // ReSharper disable once FunctionNeverReturns
         }
 
-        private static void LoadModuleRequest(string assemblyPath, CancellationToken cancellationToken)
+        private static void LoadModuleRequest(string assemblyPath, Dictionary<string, string> arguments, CancellationToken cancellationToken)
         {
             string sourceDirectory = Path.GetDirectoryName(assemblyPath);
             string temporaryDirectory = GetTemporaryDirectory();
@@ -264,7 +264,7 @@ namespace RemoteRuntime
             try
             {
                 string copyAssemblyPath = Path.Join(temporaryDirectory, Path.GetFileName(assemblyPath));
-                ExecuteAndUnload(copyAssemblyPath, cancellationToken, out hostAlcWeakRef);
+                ExecuteAndUnload(copyAssemblyPath, arguments, cancellationToken, out hostAlcWeakRef);
             }
             finally
             {

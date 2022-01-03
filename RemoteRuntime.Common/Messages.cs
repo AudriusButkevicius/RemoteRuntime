@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.IO;
 
@@ -42,24 +43,38 @@ namespace RemoteRuntime
     {
         public MessageType MessageType => MessageType.LoadAndRunRequest;
         public string Path { get; private set; }
+        public Dictionary<string, string> Arguments { get; private set; }
 
         public LoadAndRunRequest()
         {
         }
 
-        public LoadAndRunRequest(string path)
+        public LoadAndRunRequest(string path, Dictionary<string, string> arguments = null)
         {
             Path = path;
+            Arguments = arguments ?? new Dictionary<string, string>();
         }
 
         public void ReadFrom(BinaryReader reader)
         {
             Path = reader.ReadString();
+            int count = reader.ReadInt32();
+            Arguments = new Dictionary<string, string>();
+            for (int i = 0; i < count; i++)
+            {
+                Arguments[reader.ReadString()] = reader.ReadString();
+            }
         }
 
         public void WriteTo(BinaryWriter writer)
         {
             writer.Write(Path);
+            writer.Write(Arguments.Count);
+            foreach (var keyValuePair in Arguments)
+            {
+                writer.Write(keyValuePair.Key);
+                writer.Write(keyValuePair.Value);
+            }
         }
     }
 
@@ -67,7 +82,7 @@ namespace RemoteRuntime
     {
         public MessageType MessageType => MessageType.LogLine;
         public string Line { get; private set; }
-        public bool IsError { get; private set; } 
+        public bool IsError { get; private set; }
 
         public LogLine()
         {

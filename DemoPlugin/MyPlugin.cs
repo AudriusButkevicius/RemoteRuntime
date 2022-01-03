@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using RemoteRuntime.Plugin;
 
@@ -6,8 +7,12 @@ namespace DemoPlugin
 {
     public class MyPlugin : PluginBase
     {
-        public override void Run()
+        public override void Run(Dictionary<string, string> arguments)
         {
+            foreach (var keyValuePair in arguments)
+            {
+                Console.WriteLine(keyValuePair);
+            }
             int i = 0;
             while (!Terminate.WaitOne(1000))
             {
@@ -28,7 +33,10 @@ namespace DemoPlugin
                 processes = new[] { Process.Start("notepad.exe") };
             }
 
-            Inject(processes[0].Id);
+            Inject(processes[0].Id, arguments: new Dictionary<string, string>
+            {
+                {"foo", "bar"}
+            });
         }
     }
 }

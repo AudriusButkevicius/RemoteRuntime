@@ -1,6 +1,7 @@
 ﻿// ReSharper disable UnusedMember.Global UnusedType.Global InconsistentNaming MemberCanBeProtected.Global
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -11,7 +12,7 @@ namespace RemoteRuntime.Plugin
     {
         protected readonly ManualResetEvent Terminate = new(false);
 
-        public abstract void Run();
+        public abstract void Run(Dictionary<string, string> arguments);
 
         public void Stop()
         {
@@ -19,8 +20,7 @@ namespace RemoteRuntime.Plugin
             Terminate.Set();
         }
 
-
-        protected static void Inject(int pid, string pathToRuntimeDll = null, string assemblyPath = null)
+        protected static void Inject(int pid, string pathToRuntimeDll = null, string assemblyPath = null, Dictionary<string, string> arguments = null)
         {
             string path = assemblyPath ?? Assembly.GetEntryAssembly()?.Location;
             if (path == null || !File.Exists(path))
@@ -52,7 +52,7 @@ namespace RemoteRuntime.Plugin
 
             var client = MessageClient.CreateClient(pid);
             Console.WriteLine($"Connected to {pid}... asking to run {path}");
-            client.Send(new LoadAndRunRequest(path));
+            client.Send(new LoadAndRunRequest(path, arguments));
 
             while (true)
             {
