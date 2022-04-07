@@ -33,7 +33,7 @@ namespace DemoPlugin
                 processes = new[] { Process.Start("notepad.exe") };
             }
 
-            Inject(processes[0].Id, arguments: new Dictionary<string, string>
+            Inject(processes[0], arguments: new Dictionary<string, string>
             {
                 {"foo", "bar"}
             });

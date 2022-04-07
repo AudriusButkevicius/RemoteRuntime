@@ -44,15 +44,18 @@ namespace RemoteRuntime
         public MessageType MessageType => MessageType.LoadAndRunRequest;
         public string Path { get; private set; }
         public Dictionary<string, string> Arguments { get; private set; }
+        
+        public bool CopyAssembly { get; private set; }
 
         public LoadAndRunRequest()
         {
         }
 
-        public LoadAndRunRequest(string path, Dictionary<string, string> arguments = null)
+        public LoadAndRunRequest(string path, Dictionary<string, string> arguments = null, bool copyAssembly = false)
         {
             Path = path;
             Arguments = arguments ?? new Dictionary<string, string>();
+            CopyAssembly = copyAssembly;
         }
 
         public void ReadFrom(BinaryReader reader)
@@ -64,6 +67,8 @@ namespace RemoteRuntime
             {
                 Arguments[reader.ReadString()] = reader.ReadString();
             }
+
+            CopyAssembly = reader.ReadBoolean();
         }
 
         public void WriteTo(BinaryWriter writer)
@@ -75,6 +80,7 @@ namespace RemoteRuntime
                 writer.Write(keyValuePair.Key);
                 writer.Write(keyValuePair.Value);
             }
+            writer.Write(CopyAssembly);
         }
     }
 

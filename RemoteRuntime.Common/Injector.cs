@@ -9,16 +9,17 @@ namespace RemoteRuntime
 {
     public static class Injector
     {
-        public static bool Inject(int pid, string dllName)
+        public static bool Inject(Process targetProcess, string dllName)
         {
             if (!File.Exists(dllName))
             {
                 throw new FileLoadException("File does not exist", dllName);
             }
 
-            // the target process - I'm using a dummy process for this
-            // if you don't have one, open Task Manager and choose wisely
-            var targetProcess = Process.GetProcessById(pid);
+            if (targetProcess.HasExited)
+            {
+                throw new ApplicationException("Process has exited");
+            }
 
             foreach (ProcessModule targetProcessModule in targetProcess.Modules)
             {
@@ -54,8 +55,14 @@ namespace RemoteRuntime
                     procHandle, IntPtr.Zero, 0, loadLibraryAddr, allocMemAddress,
                     0, IntPtr.Zero
                 );
-
-                WaitForSingleObject(threadHandle, INFINITE);
+                
+                while (WaitForSingleObject(threadHandle, 1000) != 0)
+                {
+                    if (targetProcess.HasExited)
+                    {
+                        throw new ApplicationException("Process has exited");
+                    }
+                }
 
                 CloseHandle(threadHandle);
 

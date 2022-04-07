@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -20,7 +21,7 @@ namespace RemoteRuntime.Plugin
             Terminate.Set();
         }
 
-        protected static void Inject(int pid, string pathToRuntimeDll = null, string assemblyPath = null, Dictionary<string, string> arguments = null)
+        protected static void Inject(Process process, string pathToRuntimeDll = null, string assemblyPath = null, Dictionary<string, string> arguments = null, bool copyAssembly = false)
         {
             string path = assemblyPath ?? Assembly.GetEntryAssembly()?.Location;
             if (path == null || !File.Exists(path))
@@ -45,14 +46,14 @@ namespace RemoteRuntime.Plugin
                 pathToRuntimeDll = expectedPath;
             }
 
-            if (Injector.Inject(pid, pathToRuntimeDll))
+            if (Injector.Inject(process, pathToRuntimeDll))
             {
-                Console.WriteLine($"Injected runtime to {pid}");
+                Console.WriteLine($"Injected runtime to {process.Id}");
             }
 
-            var client = MessageClient.CreateClient(pid);
-            Console.WriteLine($"Connected to {pid}... asking to run {path}");
-            client.Send(new LoadAndRunRequest(path, arguments));
+            var client = MessageClient.CreateClient(process);
+            Console.WriteLine($"Connected to {process.Id}... asking to run {path}");
+            client.Send(new LoadAndRunRequest(path, arguments, copyAssembly));
 
             while (true)
             {

@@ -15,10 +15,11 @@ bool load_hostfxr()
 {
     char_t buffer[MAX_PATH];
     size_t buffer_size = sizeof(buffer) / sizeof(char_t);
+    std::cout << "Calling get_hostfxr_path" << std::endl << std::flush;
     const int rc = get_hostfxr_path(buffer, &buffer_size, nullptr);
     if (rc != 0)
         return false;
-    std::wcout << L"Loading runtime from " << std::wstring(buffer) << std::endl;
+    std::wcout << L"Loading runtime from " << std::wstring(buffer) << std::endl << std::flush;
     const HMODULE lib = ::LoadLibraryW(buffer);
     init_fptr = reinterpret_cast<hostfxr_initialize_for_runtime_config_fn>(::GetProcAddress(
         lib, "hostfxr_initialize_for_runtime_config"));
@@ -34,22 +35,28 @@ load_assembly_and_get_function_pointer_fn get_dotnet_load_assembly(std::filesyst
     // Load .NET Core
     void* load_assembly_and_get_function_pointer = nullptr;
     hostfxr_handle cxt = nullptr;
+    std::cout << "Calling init_fptr..." << std::endl << std::flush;
     int rc = init_fptr(config_path.c_str(), nullptr, &cxt);
     if (rc != 0 || cxt == nullptr)
     {
-        std::cerr << "Init failed: " << std::hex << std::showbase << rc << std::endl;
+        std::cerr << "Init failed: " << std::hex << std::showbase << rc << std::endl << std::flush;
         close_fptr(cxt);
         return nullptr;
     }
 
     // Get the load assembly function pointer
+    std::cout << "Calling get_delegate_fptr..." << std::endl << std::flush;
     rc = get_delegate_fptr(
         cxt,
         hdt_load_assembly_and_get_function_pointer,
         &load_assembly_and_get_function_pointer);
     if (rc != 0 || load_assembly_and_get_function_pointer == nullptr)
-        std::cerr << "Get delegate failed: " << std::hex << std::showbase << rc << std::endl;
-
+    {
+        std::cerr << "Get delegate failed: " << std::hex << std::showbase << rc << std::endl << std::flush;
+        return nullptr;
+    }
+       
+    std::cout << "Calling close_fptr..." << std::endl << std::flush;
     close_fptr(cxt);
     return static_cast<load_assembly_and_get_function_pointer_fn>(load_assembly_and_get_function_pointer);
 }

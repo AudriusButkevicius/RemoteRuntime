@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.IO;
 using System.IO.Pipes;
@@ -20,10 +21,27 @@ namespace RemoteRuntime
             _pipe = pipe;
         }
 
-        public static MessageClient CreateClient(int pid)
+        public static MessageClient CreateClient(Process process)
         {
-            var pipe = new NamedPipeClientStream(".", $"remoteruntime-{pid}", PipeDirection.InOut);
-            pipe.Connect();
+            var pipe = new NamedPipeClientStream(".", $"remoteruntime-{process.Id}", PipeDirection.InOut);
+            var connected = false;
+            while (!connected)
+            {
+                if (process.HasExited)
+                {
+                    throw new ApplicationException("The process has exited");
+                }
+
+                try
+                {
+                    pipe.Connect(1000);
+                    connected = true;
+                }
+                catch (TimeoutException)
+                {
+                }
+            }
+
             pipe.ReadMode = PipeTransmissionMode.Message;
 
             var client = new MessageClient(pipe);
@@ -67,8 +85,8 @@ namespace RemoteRuntime
         {
             uint avail = 0;
             if (!Native.PeekNamedPipe(
-                _pipe.SafePipeHandle, null, 0, IntPtr.Zero, ref avail, IntPtr.Zero
-            ))
+                    _pipe.SafePipeHandle, null, 0, IntPtr.Zero, ref avail, IntPtr.Zero
+                ))
             {
                 return -1;
             }

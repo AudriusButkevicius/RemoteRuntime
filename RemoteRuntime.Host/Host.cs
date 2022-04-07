@@ -47,7 +47,8 @@ namespace RemoteRuntime
         // unloaded.
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ExecuteAndUnload(
-            string assemblyPath, Dictionary<string, string> arguments, CancellationToken cancellationToken, out WeakReference alcWeakRef
+            string assemblyPath, Dictionary<string, string> arguments, CancellationToken cancellationToken,
+            out WeakReference alcWeakRef
         )
         {
             var alc = new HostAssemblyLoadContext(assemblyPath, Log);
@@ -100,7 +101,9 @@ namespace RemoteRuntime
                 var pluginTask = Task.Factory.StartNew(
                     () =>
                     {
-                        Log.WriteLine($"Starting plugin {plugin.GetType().Name} with arguments {string.Join(", ", arguments)}");
+                        Log.WriteLine(
+                            $"Starting plugin {plugin.GetType().Name} with arguments {string.Join(", ", arguments)}"
+                        );
                         run.Invoke(plugin, new object[] { arguments });
                     }, cancellationToken
                 );
@@ -117,7 +120,7 @@ namespace RemoteRuntime
                     if (plugin != null)
                     {
                         Log.WriteLine("Calling stop from finally...");
-                        stop?.Invoke(plugin, null);   
+                        stop?.Invoke(plugin, null);
                     }
                 }
                 catch (Exception)
@@ -186,7 +189,10 @@ namespace RemoteRuntime
                             {
                                 try
                                 {
-                                    LoadModuleRequest(message.Path, message.Arguments, cancellationTokenSource.Token);
+                                    LoadModuleRequest(
+                                        message.Path, message.Arguments, message.CopyAssembly,
+                                        cancellationTokenSource.Token
+                                    );
                                 }
                                 catch (OperationCanceledException)
                                 {
@@ -254,18 +260,25 @@ namespace RemoteRuntime
             // ReSharper disable once FunctionNeverReturns
         }
 
-        private static void LoadModuleRequest(string assemblyPath, Dictionary<string, string> arguments, CancellationToken cancellationToken)
+        private static void LoadModuleRequest(
+            string assemblyPath, Dictionary<string, string> arguments, bool copyAssembly,
+            CancellationToken cancellationToken
+        )
         {
             string sourceDirectory = Path.GetDirectoryName(assemblyPath);
-            string temporaryDirectory = GetTemporaryDirectory();
 
-            Log.WriteLine($"Copying plugin from {sourceDirectory} to {temporaryDirectory}");
-            DirectoryCopy(sourceDirectory, temporaryDirectory, true);
+            if (copyAssembly)
+            {
+                string temporaryDirectory = GetTemporaryDirectory();
+                Log.WriteLine($"Copying plugin from {sourceDirectory} to {temporaryDirectory}");
+                DirectoryCopy(sourceDirectory, temporaryDirectory, true);
+                sourceDirectory = temporaryDirectory;
+            }
 
             WeakReference hostAlcWeakRef = null;
             try
             {
-                string copyAssemblyPath = Path.Join(temporaryDirectory, Path.GetFileName(assemblyPath));
+                string copyAssemblyPath = Path.Join(sourceDirectory, Path.GetFileName(assemblyPath));
                 ExecuteAndUnload(copyAssemblyPath, arguments, cancellationToken, out hostAlcWeakRef);
             }
             finally
@@ -293,8 +306,11 @@ namespace RemoteRuntime
 
                 try
                 {
-                    Directory.Delete(temporaryDirectory, true);
-                    Log.WriteLine($"Cleaned up temporary directory {temporaryDirectory}");
+                    if (copyAssembly)
+                    {
+                        Directory.Delete(sourceDirectory, true);
+                        Log.WriteLine($"Cleaned up temporary directory {sourceDirectory}");
+                    }
                 }
                 catch (Exception)
                 {
