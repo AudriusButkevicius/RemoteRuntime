@@ -6,7 +6,7 @@
 
 Yet another bastard child for remote process manipulation.
 
-Uses C# AppDomains to dynamically load, execute, unload C# DLLs into a remote process, without having to restart the process.
+Uses C# AssemblyLoadContext (.NET 5+ I think) to dynamically load, execute, unload C# DLLs into a remote process, without having to restart the process.
 The intended usecase is to quickly iterate on C# code that is supposed to run in and interact with native code.
 
 See [RemoteHands](https://github.com/AudriusButkevicius/RemoteHands) for alternative approach.
@@ -31,4 +31,4 @@ It will start Notepad with a C# runtime embedded, executing your C# code.
 
 # Dependencies
 
-Assumes you have .Net Framework installed on your machine.
+Assumes you have .NET 5+ installed on your machine.
